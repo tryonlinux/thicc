@@ -1,0 +1,2 @@
+# thicc
+CLI Weight Tracker
