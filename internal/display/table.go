@@ -49,13 +49,28 @@ func RenderWeightsTable(weights []models.Weight, settings *models.Settings, limi
 	avgWeight := totalWeight / float64(len(weights))
 	latestWeight := weights[0].Weight
 	latestBMI := weights[0].BMI
+	startWeight := weights[len(weights)-1].Weight
+
+	// Calculate change from start
+	delta := latestWeight - startWeight
+	var deltaStr string
+	if delta < 0 {
+		// Lost weight
+		deltaStr = fmt.Sprintf("Lost %s", FormatWeight(math.Abs(delta), settings.WeightUnit))
+	} else if delta > 0 {
+		// Gained weight
+		deltaStr = fmt.Sprintf("Gained %s", FormatWeight(delta, settings.WeightUnit))
+	} else {
+		deltaStr = "No change"
+	}
 
 	// Build stats header (goes with ASCII art header)
 	var header strings.Builder
-	header.WriteString(HeaderStyle.Render(fmt.Sprintf("Latest: %s | BMI: %s | Avg: %s",
+	header.WriteString(HeaderStyle.Render(fmt.Sprintf("Latest: %s | BMI: %s | Avg: %s | %s",
 		FormatWeight(latestWeight, settings.WeightUnit),
 		FormatBMI(latestBMI),
-		FormatWeight(avgWeight, settings.WeightUnit))))
+		FormatWeight(avgWeight, settings.WeightUnit),
+		deltaStr)))
 	header.WriteString("\n")
 	header.WriteString(InfoStyle.Render(fmt.Sprintf("Min: %s | Max: %s | Entries: %d",
 		FormatWeight(minWeight, settings.WeightUnit),
