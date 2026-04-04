@@ -69,7 +69,7 @@ func SetupSettings(db *database.DB) (*Settings, error) {
 	reader := bufio.NewReader(os.Stdin)
 
 	fmt.Println("\n=== First Time Setup ===")
-	fmt.Println("Please configure your preferences.\n")
+	fmt.Println("Please configure your preferences.")
 
 	// Get weight unit
 	var weightUnit string
@@ -154,7 +154,7 @@ func SetupSettings(db *database.DB) (*Settings, error) {
 		return nil, err
 	}
 
-	fmt.Println("\nSettings saved successfully!\n")
+	fmt.Println("\nSettings saved successfully!")
 
 	return &Settings{
 		WeightUnit: weightUnit,
