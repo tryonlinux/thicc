@@ -3,6 +3,7 @@ package tests
 import (
 	"os"
 	"testing"
+	"time"
 
 	"github.com/tryonlinux/thicc/internal/database"
 	"github.com/tryonlinux/thicc/internal/models"
@@ -288,5 +289,141 @@ func TestGoalWeightDifferentUnits(t *testing.T) {
 				t.Errorf("Expected weight unit '%s', got '%s'", tc.weightUnit, settings.WeightUnit)
 			}
 		})
+	}
+}
+
+func TestResetSettings(t *testing.T) {
+	db := setupTestDB(t)
+
+	// Set up initial settings
+	db.Exec("INSERT INTO settings (key, value) VALUES ('weight_unit', 'kg')")
+	db.Exec("INSERT INTO settings (key, value) VALUES ('height_unit', 'cm')")
+	db.Exec("INSERT INTO settings (key, value) VALUES ('height', '175')")
+	db.Exec("INSERT INTO settings (key, value) VALUES ('goal_weight', '70')")
+
+	// Verify it exists
+	settings, _ := models.GetSettings(db)
+	if settings == nil {
+		t.Fatal("Settings should exist before reset")
+	}
+
+	// Reset
+	err := models.ResetSettings(db)
+	if err != nil {
+		t.Fatalf("ResetSettings error: %v", err)
+	}
+
+	// Verify it's gone
+	settings, err = models.GetSettings(db)
+	if err != nil {
+		t.Fatalf("GetSettings error after reset: %v", err)
+	}
+	if settings != nil {
+		t.Errorf("Expected nil settings after reset, got %+v", settings)
+	}
+}
+
+func TestGetTodayDate(t *testing.T) {
+	today := models.GetTodayDate()
+	expected := time.Now().Format("2006-01-02")
+	if today != expected {
+		t.Errorf("Expected date %s, got %s", expected, today)
+	}
+}
+
+func TestModelsErrorPaths(t *testing.T) {
+	db := setupTestDB(t)
+
+	// Add settings but malformed values for floats
+	db.Exec("INSERT INTO settings (key, value) VALUES ('weight_unit', 'kg')")
+	db.Exec("INSERT INTO settings (key, value) VALUES ('height_unit', 'cm')")
+	db.Exec("INSERT INTO settings (key, value) VALUES ('height', 'invalid')")
+	db.Exec("INSERT INTO settings (key, value) VALUES ('goal_weight', '70')")
+
+	// GetSettings should fail on ParseFloat
+	_, err := models.GetSettings(db)
+	if err == nil {
+		t.Error("GetSettings should have failed on invalid height")
+	}
+
+	// Fix height, break goal_weight
+	db.Exec("UPDATE settings SET value = '175' WHERE key = 'height'")
+	db.Exec("UPDATE settings SET value = 'invalid' WHERE key = 'goal_weight'")
+	_, err = models.GetSettings(db)
+	if err == nil {
+		t.Error("GetSettings should have failed on invalid goal_weight")
+	}
+
+	// Close DB to trigger errors
+	db.Close()
+
+	_, err = models.GetSettings(db)
+	if err == nil {
+		t.Error("GetSettings should have failed on closed DB")
+	}
+
+	_, err = models.GetWeights(db, 10)
+	if err == nil {
+		t.Error("GetWeights should have failed on closed DB")
+	}
+
+	_, err = models.GetWeightsBetweenDates(db, "2024-01-01", "2024-01-02")
+	if err == nil {
+		t.Error("GetWeightsBetweenDates should have failed on closed DB")
+	}
+}
+
+func TestSetupSettings(t *testing.T) {
+	db := setupTestDB(t)
+
+	// Mock Stdin
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldStdin := os.Stdin
+	defer func() { os.Stdin = oldStdin }()
+	os.Stdin = r
+
+	// Provide inputs: weight unit, height unit, height, goal weight
+	// We'll also test invalid inputs to trigger retry loops
+	inputs := "invalid\nlbs\ncm\n180\n75\n"
+	go func() {
+		w.Write([]byte(inputs))
+		w.Close()
+	}()
+
+	settings, err := models.SetupSettings(db)
+	if err != nil {
+		t.Fatalf("SetupSettings error: %v", err)
+	}
+
+	if settings.WeightUnit != "lbs" {
+		t.Errorf("Expected weight unit lbs, got %s", settings.WeightUnit)
+	}
+	if settings.HeightUnit != "cm" {
+		t.Errorf("Expected height unit cm, got %s", settings.HeightUnit)
+	}
+	if settings.Height != 180.0 {
+		t.Errorf("Expected height 180, got %f", settings.Height)
+	}
+	if settings.GoalWeight != 75.0 {
+		t.Errorf("Expected goal weight 75, got %f", settings.GoalWeight)
+	}
+
+	// Test height/goal weight invalid input retries
+	r2, w2, _ := os.Pipe()
+	os.Stdin = r2
+	go func() {
+		w2.Write([]byte("kg\nin\n0\n-5\n70\n0\nabc\n65\n"))
+		w2.Close()
+	}()
+
+	settings, err = models.SetupSettings(db)
+	if err != nil {
+		t.Fatalf("SetupSettings error: %v", err)
+	}
+	if settings.Height != 70.0 || settings.GoalWeight != 65.0 {
+		t.Errorf("Expected height 70 and goal 65, got %f and %f", settings.Height, settings.GoalWeight)
 	}
 }
